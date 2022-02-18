@@ -102,7 +102,60 @@ shinyUI(fluidPage(
                                    height = 950)
                     ))
                  ),
-        tabPanel('Defense'),
+        tabPanel('Defense',
+                 h4('Choose any number of teams for which to query the database and return their defensive stats.'),
+                    fluidRow(
+                        column(8, 
+                            selectInput('defenseteams',
+                                    'Teams',
+                                    multiple = TRUE,
+                                    choices = c('',
+                                                'Atlanta Hawks',
+                                                'Boston Celtics',
+                                                'Charlotte Hornets',
+                                                'Chicago Bulls',
+                                                'Cleveland Cavaliers',
+                                                'Dallas Mavericks',
+                                                'Denver Nuggets',
+                                                'Detroit Pistons',
+                                                'Golden State Warriors',
+                                                'Houston Rockets',
+                                                'Indiana Pacers',
+                                                'Los Angeles Clippers',
+                                                'Los Angeles Lakers',
+                                                'Memphis Grizzlies',
+                                                'Miami Heat',
+                                                'Milwaukee Bucks',
+                                                'Minnesota Timberwolves',
+                                                'New Orleans Pelicans',
+                                                'New York Knicks',
+                                                'Brooklyn Nets',
+                                                'Oklahoma City Thunder',
+                                                'Orlando Magic',
+                                                'Philadelphia 76ers',
+                                                'Phoenix Suns',
+                                                'Portland Trail Blazers',
+                                                'Sacramento Kings',
+                                                'Toronto Raptors',
+                                                'Utah Jazz',
+                                                'Washington Wizards'),
+                                    selected = '')
+                     ),
+                         column(1,
+                            actionButton('getdefense', 'Compare')
+                            ),
+                     #),
+                     # fluidRow(
+                        column( 3,
+                               plotOutput('defenseplot', 
+                                          width =1500,
+                                          height = 800)
+                        )
+                     )
+                     
+                 
+        ),
+                 
         "Players",
         tabPanel("Standings"),
         tabPanel("Top Shooters"), 

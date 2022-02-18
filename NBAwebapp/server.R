@@ -32,7 +32,7 @@ webdata <- data.table('dataname' = c('PLAYER_DATA',
 )
 
 ##### Scrape Function #####
-scrapeandwrite.data <- function(webdata, connection){        
+scrapeandwrite.data <- function(webdata){        
     scraped <- list()
     statkeys <- list()
     for (row in 1:nrow(webdata)){
@@ -50,12 +50,12 @@ scrapeandwrite.data <- function(webdata, connection){
         
         vars <- sapply(webtablekey, function(x) {x <- html_attr(x,'data-stat') %>%
             tolower()})
-        setnames(webtable, names(webtable), vars)
-        webtable[ , which(names(webtable) == 'dummy') := NULL]
+        setnames(webtable, names(webtable), toupper(vars))
+        webtable[ , which(names(webtable) == 'DUMMY') := NULL]
         
         webtablekey <- sapply(webtablekey, function(x) {n <- html_attr(x,'aria-label')})
-        k <- data.table('stat' = vars, 'description' = webtablekey)
-        k <- k[stat != 'dummy']
+        k <- data.table('STAT' = vars, 'DESCR' = webtablekey)
+        k <- k[STAT != 'DUMMY']
         
         tablename <- webdata[row, dataname]
         scraped[[tablename]] <- webtable
@@ -98,6 +98,7 @@ shinyServer(function(input, output, session) {
                       sqtable = 'FJS08406.TEAM_ADVANCED_DATA', 
                       rownames = FALSE) %>%
                 as.data.table()
+    setnames(teams, names(teams), tolower(names(teams)))
     closeAllConnections()
     
     ##### Team Standings Table #####
@@ -118,7 +119,11 @@ shinyServer(function(input, output, session) {
     ##### Team FG% Diagram #####
     con <- odbcConnect('DB2', 'fjs08406', 'hVJHsH2WnvB9H3Bm')
     d <- sqlFetch(con, 'TEAM_SHOOTING') %>% as.data.table()
+    setnames(d, names(d), tolower(names(d)))
+    
     k <-  sqlFetch(con, 'TEAM_SHOOTING_KEY') %>% as.data.table()
+    setnames(k, names(k), tolower(names(k)))
+    
     closeAllConnections()
     
     
@@ -189,14 +194,8 @@ shinyServer(function(input, output, session) {
                                 con.cap = 0,
                                 con.colour = 'black'
                                 ) +
-            #geom_point(color= 'black') +
-            
-            
             coord_cartesian(xlim = c(50,100), ylim = c(26,76)) + 
-            
             coord_flip() +
-            # xlim(50, 101) +
-            # ylim(0,100)+
             #Theme
             theme(
                 panel.background = element_rect(fill = "transparent",colour = NA),
@@ -240,7 +239,6 @@ shinyServer(function(input, output, session) {
         }
         shotdist2 <- rbindlist(shotdist2)
         shotdist2[, fg.percent := as.factor(fg.percent*100)]
-        shotdist2[, fg.percent := paste0(fg.percent, '%')]
         shotdist2[, fg.percent := paste0(fg.percent, '%')]
         distdescr <- c('0-3ft FG%', 
                        '3-10ft FG%', 
@@ -289,14 +287,8 @@ shinyServer(function(input, output, session) {
             con.cap = 0,
             con.colour = 'black'
             ) +
-            #geom_point(color= 'black') +
-            
-            
             coord_cartesian(xlim = c(50,100), ylim = c(26,76)) + 
-            
             coord_flip() +
-            # xlim(50, 101) +
-            # ylim(0,100)+
             #Theme
             theme(
                 panel.background = element_rect(fill = "transparent",colour = NA),
@@ -307,7 +299,7 @@ shinyServer(function(input, output, session) {
                 axis.title.x = element_blank(),
                 axis.title.y = element_blank(),
                 axis.text = element_blank(),
-                legend.position = 'none',#c(.86, .80),
+                legend.position = 'none',
                 legend.box = "vertical",
                 legend.background = element_rect(fill = 'transparent'),
                 legend.key.size = unit(10, 'mm'),
@@ -317,6 +309,71 @@ shinyServer(function(input, output, session) {
             ggtitle(paste0(teamchoice2, ' FG% Across Ranges'))
         
     })
+    
+    
+    
+    
+    # Query team data and format results when button is clicked
+    observeEvent(input$getdefense, {
+        # Store team names and number
+        teams <- input$defenseteams
+        nteams <- length(teams)
+        # Make connection and generate query
+        con <- odbcConnect('DB2', 'fjs08406', 'hVJHsH2WnvB9H3Bm')
+        teamnames <- sapply(teams, function(t){
+            paste0('TEAM = ',
+                   '\'',
+                   t,
+                   '\'',
+                   ' OR ')}) %>%
+            paste0(collapse = '')
+        teamnames <- substr(teamnames, 1, (nchar(teamnames)-4))
+
+        q <- paste0('SELECT TEAM, OPP_EFG_PCT, OPP_TOV_PCT, DRB_PCT FROM TEAM_ADVANCED_DATA WHERE ',
+                    teamnames,
+                    ';')
+
+        # Query and format
+        data <- sqlQuery(con, q) %>%
+            as.data.table()
+            setnames(data, names(data), tolower(names(data)))
+        data[, opp_efg_pct := opp_efg_pct*100]
+        data <- melt.data.table(data, id.vars = 'team')
+        
+        # Generate plot
+        output$defenseplot <- renderPlot({
+
+             ggplot(data, aes(variable, value, fill = team)) +
+                 geom_col(position = 'dodge') +
+                 labs(x = 'Defensive Stat',
+                      y = 'Percent') +
+                 scale_fill_discrete(name = 'Team') +
+                 scale_x_discrete(labels = c('Opponent Effective Field Goal Percentage', 
+                                             'Opponent Turn Over Percentage',
+                                             'Defensive Rebound Percentage')) +
+                 geom_text(aes(label = paste0(value, '%')),
+                           vjust = -.5, position = position_dodge(width = .9),
+                           size = 5,
+                           color = 'black') +
+                 theme_classic() +
+                 theme(
+                     legend.key.width = unit(5, 'mm'),
+                     legend.text = element_text(size = 15),
+                     legend.title = element_text(size = 20),
+                     plot.title = element_text(size = 22, hjust = .5),
+                     axis.text = element_text(size = 15),
+                     axis.title.x = element_text(size = 18),
+                     axis.title.y = element_text(size = 18),
+                     axis.text.x = element_text(angle = 15, hjust = 1)
+                 ) +
+                 ggtitle('Comparing Team Defense')
+
+     })
+    
+    })
+    
+    
+    
     
     
     session$onSessionEnded(stopApp)
