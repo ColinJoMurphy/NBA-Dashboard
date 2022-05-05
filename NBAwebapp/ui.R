@@ -8,18 +8,22 @@
 #
 library(shinycssloaders)
 library(shiny)
+library(plotly)
+library(bslib)
 
 # Define UI for application that draws a histogram
 shinyUI(fluidPage(
-
+    theme = bs_theme(bootswatch = 'yeti'),
     # Application title
-    titlePanel("NBA Dashboard"),
-
-    # Sidebar with a slider input for number of bins
-    navlistPanel(widths = c(1, 2),
+    titlePanel('NBA \'22 Season Dashboard' ),
+    
+    mainPanel(
+    navlistPanel(widths = c(2, 10),
         "Teams",
         tabPanel("Standings",
-                 withSpinner(DT::dataTableOutput('teamstandings'))),
+                 withSpinner(DT::dataTableOutput('teamstandings'), 
+                             image = 'https://media.giphy.com/media/glXhanMgKLLRWir9MR/giphy.gif',
+                             image.height = 180)),
         tabPanel("Shooting",
                  h5('Choose two teams to compare their field goal percentages at different ranges.'),
                  fluidRow(
@@ -95,17 +99,21 @@ shinyUI(fluidPage(
                      ),
      
                 fluidRow(
-                    splitLayout(cellWidths = c(800, 800), 
-                        plotOutput('teamFGdiagram1',
-                                   height = 950),
-                        plotOutput('teamFGdiagram2',
-                                   height = 950)
+                    splitLayout(cellWidths = c(600, 600), 
+                        withSpinner(plotOutput('teamFGdiagram1',
+                                                height = 700),
+                                    image = 'https://media.giphy.com/media/glXhanMgKLLRWir9MR/giphy.gif',
+                                    image.height = 180),
+                        withSpinner(plotOutput('teamFGdiagram2',
+                                                height = 700),
+                                    image = 'https://media.giphy.com/media/glXhanMgKLLRWir9MR/giphy.gif',
+                                    image.height = 180)
                     ))
                  ),
         tabPanel('Defense',
                  h4('Choose any number of teams for which to query the database and return their defensive stats.'),
                     fluidRow(
-                        column(8, 
+                        column(2, 
                             selectInput('defenseteams',
                                     'Teams',
                                     multiple = TRUE,
@@ -140,28 +148,105 @@ shinyUI(fluidPage(
                                                 'Utah Jazz',
                                                 'Washington Wizards'),
                                     selected = '')
-                     ),
+                                ),
                          column(1,
-                            actionButton('getdefense', 'Compare')
-                            ),
-                     #),
-                     # fluidRow(
-                        column( 3,
-                               plotOutput('defenseplot', 
-                                          width =1500,
-                                          height = 800)
-                        )
+                                actionButton('getdefense', 'Compare')
+                                )
+                        ),
+
+                 
+                        fluidRow(column(7, offset = 2,
+                                 withSpinner(plotOutput('defenseplot', 
+                                                        width =1200,
+                                                        height = 600
+                                                      ),
+                                             image = 'https://media.giphy.com/media/glXhanMgKLLRWir9MR/giphy.gif',
+                                             image.height = 180)
+                             )
                      )
                      
                  
         ),
                  
         "Players",
-        tabPanel("Standings"),
-        tabPanel("Top Shooters"), 
-        tabPanel('Top Defenders'),
-        "-----",
-        tabPanel("Predictions")
+        tabPanel("Stats by Postion",
+                 h4('Select a statistic to compare across positions'),
+                 fluidRow(
+                     column(4, 
+                            selectInput('positionstat',
+                                        'Statistic',
+                                        choices = c('',
+                                                    'Field Goal Percentage',
+                                                    '3-Point Field Goal Percentage',
+                                                    '2-Point Field Goal Percentage',
+                                                    'Effective Field Goal Percentage',
+                                                    'Free Throw Percentage',
+                                                    'Offensive Rebounds',
+                                                    'Defensive Rebounds',
+                                                    'Total Rebounds',
+                                                    'Assists',
+                                                    'Steals',
+                                                    'Blocks',
+                                                    'Turnovers'
+                                                    ),
+                                        selected = '')
+                            ),
+                     ),
+                  fluidRow(
+                        # column( 8,
+                             withSpinner(plotlyOutput('positionplot', 
+                                                      width =1200,
+                                                      height = 600),
+                                         image = 'https://media.giphy.com/media/glXhanMgKLLRWir9MR/giphy.gif',
+                                         image.height = 180)
+                              # )
+                           )
+                 ),
+        tabPanel('Shooting and Defending',
+                
+                 h4('Select stats to with which query player data:'),
+                 fluidRow(column(10,
+                            checkboxGroupInput('offensestat',
+                                               'Offensive Stats',
+                                               choices = c('Field Goal Percentage',
+                                                           '3-Point Field Goal Percentage',
+                                                           '2-Point Field Goal Percentage',
+                                                           'Effective Field Goal Percentage',
+                                                           'Free Throw Percentage',
+                                                           'Assits',
+                                                           'Offensive Rebounds'
+                                                           ),
+                                                inline = TRUE
+                                              )
+                                        
+                            ),
+                         ),
+                 fluidRow(column(10,
+                            checkboxGroupInput('defensestat',
+                                               'Defensive Stats',
+                                               choices = c('Defensive Rebounds',
+                                                           'Steals',
+                                                           'Blocks',
+                                                           'Turnovers'
+                                                            ),
+                                               inline = TRUE
+                                               )
+                                )
+
+                    
+                          ),
+                
+                 fluidRow(column(12,
+                                 withSpinner(DT::dataTableOutput('playertable'),
+                                             image = 'https://media.giphy.com/media/glXhanMgKLLRWir9MR/giphy.gif',
+                                             image.height = 180)
+                                )
+                 
+                        )
     )
 
-))
+
+)
+)
+)
+)

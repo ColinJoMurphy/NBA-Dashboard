@@ -1,7 +1,6 @@
 
-
+##### Required Packages #####
 library(shiny)
-library(shinycssloaders)
 library(data.table)
 library(tidyr)
 library(RODBC)
@@ -10,7 +9,10 @@ library(rvest)
 library(DT)
 library(ggplot2)
 library(ggforce)
-# When app is opened, scrape up-to-date NBA data and write to Db2
+library(plotly)
+library(stringr)
+library(bslib)
+
 ##### Define Web Data #####
 
 
@@ -41,7 +43,7 @@ scrapeandwrite.data <- function(webdata){
             read_html() %>%
             html_elements(css = webdata[row, tableselector]) %>%
             html_table() %>%
-            as.data.table()
+            as.data.table
         
         webtablekey <- webdata[row, urlsource] %>%
             read_html() %>%
@@ -52,6 +54,26 @@ scrapeandwrite.data <- function(webdata){
             tolower()})
         setnames(webtable, names(webtable), toupper(vars))
         webtable[ , which(names(webtable) == 'DUMMY') := NULL]
+        
+        if (row == 1){
+            webtable[, 
+                     6:ncol(webtable) := lapply(.SD, as.numeric), 
+                     .SDcols = (6:ncol(webtable))]
+        }
+        
+        if (row %in% c(2,3)){
+            webtable[, TEAM := str_remove(TEAM, '[*]')]
+        }
+        
+        percstats <- names(webtable) %like% 'PCT'
+        percstats <- names(webtable)[percstats]
+        webtable[, 
+                 eval(percstats) := lapply(.SD, 
+                                             function(x) fifelse(x < 1, 
+                                                                 x*100, 
+                                                                 x)), 
+                 .SDcols = percstats]        
+        
         
         webtablekey <- sapply(webtablekey, function(x) {n <- html_attr(x,'aria-label')})
         k <- data.table('STAT' = vars, 'DESCR' = webtablekey)
@@ -84,11 +106,28 @@ scrapeandwrite.data <- function(webdata){
 
 
 shinyServer(function(input, output, session) {
+
+    
+    # autoInvalidate <- reactiveTimer(600000)
+    # observe({
+    #     # Invalidate and re-execute this reactive expression every time the
+    #     # timer fires.
+    #     autoInvalidate()
+    #     
+    #     # Do something each time this is invalidated.
+    #     # The isolate() makes this observer _not_ get invalidated and re-executed
+    #     # when input$n changes.
+    #     scrapeandwrite.data(webdata)
+    #     print('Data Scraped and Writen to Server')
+    # })
+    
+    
  
     # Set the scrapeandwrite.data() function to invalidate so the data is updated once every 24 hours
     reactive({
         invalidateLater(600000)    # refresh the report every 600k milliseconds (600 seconds)
-        scrapeandwrite.data(webdata)                # call our function from above
+    scrapeandwrite.data(webdata)                # call our function from above
+    print('Data Scraped and Writen to Server')
     })
     
     
@@ -97,9 +136,10 @@ shinyServer(function(input, output, session) {
     teams <- sqlFetch(con, 
                       sqtable = 'FJS08406.TEAM_ADVANCED_DATA', 
                       rownames = FALSE) %>%
-                as.data.table()
-    setnames(teams, names(teams), tolower(names(teams)))
+                setDT()
     closeAllConnections()
+    setnames(teams, names(teams), tolower(names(teams)))
+    
     
     ##### Team Standings Table #####
     output$teamstandings <- DT::renderDataTable({
@@ -113,15 +153,15 @@ shinyServer(function(input, output, session) {
     teamshooting <- sqlFetch(con, 
                       sqtable = 'FJS08406.TEAM_SHOOTING', 
                       rownames = FALSE) %>%
-        as.data.table()
+        setDT()
     closeAllConnections()
     
     ##### Team FG% Diagram #####
     con <- odbcConnect('DB2', 'fjs08406', 'hVJHsH2WnvB9H3Bm')
-    d <- sqlFetch(con, 'TEAM_SHOOTING') %>% as.data.table()
+    d <- sqlFetch(con, 'TEAM_SHOOTING') %>% setDT()
     setnames(d, names(d), tolower(names(d)))
     
-    k <-  sqlFetch(con, 'TEAM_SHOOTING_KEY') %>% as.data.table()
+    k <-  sqlFetch(con, 'TEAM_SHOOTING_KEY') %>% setDT()
     setnames(k, names(k), tolower(names(k)))
     
     closeAllConnections()
@@ -129,6 +169,12 @@ shinyServer(function(input, output, session) {
     
     # Team1 Field Goal Percentage diagram
     output$teamFGdiagram1 <- renderPlot({
+        
+        # Wait to render plot until team is chosen
+        validate(
+            need(input$shootingteam1, ''),
+        )
+        
         teamchoice1 <- input$shootingteam1
         # Separte FG%s and calculate FG% on heaves
         shots <- d[, c(2, 14:18, 27,28)
@@ -145,7 +191,7 @@ shinyServer(function(input, output, session) {
             shotdist <- c(shotdist, list(fgp))
         }
         shotdist <- rbindlist(shotdist)
-        shotdist[, fg.percent := as.factor(fg.percent*100)]
+        shotdist[, fg.percent := as.factor(fg.percent)]
         shotdist[, fg.percent := paste0(fg.percent, '%')]
         distdescr <- c('0-3ft FG%', 
                        '3-10ft FG%', 
@@ -221,6 +267,12 @@ shinyServer(function(input, output, session) {
     
     # Team2 Field Goal Percentage diagram
     output$teamFGdiagram2 <- renderPlot({
+        
+        # Wait to render plot until team is chosen
+        validate(
+            need(input$shootingteam2, ''),
+        )
+        
         teamchoice2 <- input$shootingteam2
         
         # Separte FG%s and calculate FG% on heaves
@@ -238,7 +290,7 @@ shinyServer(function(input, output, session) {
             shotdist2 <- c(shotdist2, list(fgp))
         }
         shotdist2 <- rbindlist(shotdist2)
-        shotdist2[, fg.percent := as.factor(fg.percent*100)]
+        shotdist2[, fg.percent := as.factor(fg.percent)]
         shotdist2[, fg.percent := paste0(fg.percent, '%')]
         distdescr <- c('0-3ft FG%', 
                        '3-10ft FG%', 
@@ -312,14 +364,13 @@ shinyServer(function(input, output, session) {
     
     
     
-    
+##### Team Defense #####    
     # Query team data and format results when button is clicked
     observeEvent(input$getdefense, {
         # Store team names and number
         teams <- input$defenseteams
         nteams <- length(teams)
-        # Make connection and generate query
-        con <- odbcConnect('DB2', 'fjs08406', 'hVJHsH2WnvB9H3Bm')
+        # Build query
         teamnames <- sapply(teams, function(t){
             paste0('TEAM = ',
                    '\'',
@@ -333,11 +384,13 @@ shinyServer(function(input, output, session) {
                     teamnames,
                     ';')
 
-        # Query and format
+        # Execute query and format result table
+        con <- odbcConnect('DB2', 'fjs08406', 'hVJHsH2WnvB9H3Bm')
         data <- sqlQuery(con, q) %>%
-            as.data.table()
-            setnames(data, names(data), tolower(names(data)))
-        data[, opp_efg_pct := opp_efg_pct*100]
+            setDT()
+        closeAllConnections()
+        setnames(data, names(data), tolower(names(data)))
+        data[, opp_efg_pct := opp_efg_pct]
         data <- melt.data.table(data, id.vars = 'team')
         
         # Generate plot
@@ -373,8 +426,104 @@ shinyServer(function(input, output, session) {
     })
     
     
+    output$positionplot <- renderPlotly({
+        
+        # Require input so user doesn't see an error
+        validate(
+            need(input$positionstat, ''),
+        )
+        
+        # Store stat
+        inputstat <- input$positionstat
+        
+        # Query and format
+        con <- odbcConnect('DB2', 'fjs08406', 'hVJHsH2WnvB9H3Bm')
+        key <- sqlFetch(con, 'PLAYER_DATA_KEY') %>%
+            setDT()
+        setnames(key, names(key), tolower(names(key)))
+        data <- sqlFetch(con, 'PLAYER_DATA') %>%
+            setDT()
+        closeAllConnections()
+        setnames(data, names(data), tolower(names(data)))
+        data <- data[data[,player != 'Player']]
+        data[, 
+             pos := fifelse(nchar(pos)>2, 
+                            substr(pos, 1, (nchar(pos) - 3)), 
+                            pos)
+             ]
+        
+        # Convert stats to numeric, '' entries introduce NAs
+        data[, 6:30] <- data[, lapply(.SD, as.numeric), .SDcols = 6:30]
+        plotstat <- key[descr == inputstat, stat]
+        
+        # Generate plot
+           g <- ggplot(data, aes(pos, round(get(plotstat), 2))) +
+                geom_boxplot(aes(fill = pos), na.rm = TRUE) +
+                labs(x = 'Position',
+                     y = eval(inputstat)) +
+                scale_fill_discrete(name = 'Position',
+                                     breaks = c('C', 'PF', 'SF','PG', 'SG'),
+                                     labels = c('Center',
+                                                'Power Forward',
+                                                'Small Forward',
+                                                'Point Guard',
+                                                'Shooting Guard')) +
+                theme_bw() +
+                theme(
+                    legend.key.width = unit(5, 'mm'),
+                    legend.text = element_text(size = 15),
+                    legend.title = element_text(size = 20),
+                    plot.title = element_text(size = 22, hjust = .5),
+                    axis.text = element_text(size = 15),
+                    axis.title.x = element_text(size = 18),
+                    axis.title.y = element_text(size = 18),
+                    axis.text.x = element_text(angle = 0, hjust = 1)
+                ) +
+                ggtitle('Comparing Positions')
+                
+                ggplotly(g,
+                         tooltip = c('y', 'fill')
+                         )
+        })
     
+    
+    output$playertable <- renderDataTable({
+        
+        # Require input so user doesn't see an error
+        validate(
+            need(!is.null(input$offensestat) | !is.null(input$defensestat), ''),
+        )
+        
+        # Combine chosen stats
+        chosenstats <- c(input$defensestat, input$offensestat)
+        
+        # Generate connection to SQL DB2
+        con <- odbcConnect('DB2', 'fjs08406', 'hVJHsH2WnvB9H3Bm')
+        
+        # Pull the key table
+        key <- sqlFetch(con, 'PLAYER_DATA_KEY')
+        setDT(key)
+        
+        # Extract the STAT associated with the chosen stat descriptions
+        chosenstats <- key[DESCR %in% chosenstats, STAT]
+        
+        # Generate main query
+        q <- chosenstats %>%
+                str_to_upper(.) %>%
+                str_c('ROUND(AVG(', ., '), 2) as AVG_',.) %>%
+                paste0(., collapse = ', ') %>%
+                paste0('select PLAYER, ', ., ' from PLAYER_DATA group by PLAYER;')
+        
+        # Execute query
+        data <- sqlQuery(con, query = q) %>%
+            setDT()
+        closeAllConnections()
+        setnames(data, names(data), tolower(names(data))) 
+        DT::datatable(data)
+    })
     
     
     session$onSessionEnded(stopApp)
 })
+
+                               
