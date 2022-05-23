@@ -15,7 +15,7 @@ library(bslib)
 shinyUI(fluidPage(
     theme = bs_theme(bootswatch = 'yeti'),
     # Application title
-    titlePanel('NBA \'22 Season Dashboard' ),
+    titlePanel('2021-22 NBA Season Dashboard' ),
     
     mainPanel(
     navlistPanel(widths = c(2, 10),
