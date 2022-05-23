@@ -3,7 +3,6 @@
 library(shiny)
 library(data.table)
 library(tidyr)
-library(RODBC)
 library(xml2)
 library(rvest) 
 library(DT)
@@ -12,13 +11,15 @@ library(ggforce)
 library(plotly)
 library(stringr)
 library(bslib)
+library(DBI)
+library(RPostgres)
 
 ##### Define Web Data #####
 
 
-webdata <- data.table('dataname' = c('PLAYER_DATA', 
-                                     'TEAM_ADVANCED_DATA', 
-                                     'TEAM_SHOOTING'),
+webdata <- data.table('dataname' = c('player_data', 
+                                     'team_advanced_data', 
+                                     'team_shooting'),
                       
                       'urlsource' = c('https://www.basketball-reference.com/leagues/NBA_2022_totals.html',
                                       'https://www.basketball-reference.com/leagues/NBA_2022.html',
@@ -34,7 +35,7 @@ webdata <- data.table('dataname' = c('PLAYER_DATA',
 )
 
 ##### Scrape Function #####
-scrapeandwrite.data <- function(webdata){        
+scrapeandwrite.data <- function(webdata, con){        
     scraped <- list()
     statkeys <- list()
     for (row in 1:nrow(webdata)){
@@ -52,8 +53,8 @@ scrapeandwrite.data <- function(webdata){
         
         vars <- sapply(webtablekey, function(x) {x <- html_attr(x,'data-stat') %>%
             tolower()})
-        setnames(webtable, names(webtable), toupper(vars))
-        webtable[ , which(names(webtable) == 'DUMMY') := NULL]
+        setnames(webtable, names(webtable), tolower(vars))
+        webtable[ , which(names(webtable) == 'dummy') := NULL]
         
         if (row == 1){
             webtable[, 
@@ -62,10 +63,10 @@ scrapeandwrite.data <- function(webdata){
         }
         
         if (row %in% c(2,3)){
-            webtable[, TEAM := str_remove(TEAM, '[*]')]
+            webtable[, team := str_remove(team, '[*]')]
         }
         
-        percstats <- names(webtable) %like% 'PCT'
+        percstats <- names(webtable) %like% 'pct'
         percstats <- names(webtable)[percstats]
         webtable[, 
                  eval(percstats) := lapply(.SD, 
@@ -76,95 +77,98 @@ scrapeandwrite.data <- function(webdata){
         
         
         webtablekey <- sapply(webtablekey, function(x) {n <- html_attr(x,'aria-label')})
-        k <- data.table('STAT' = vars, 'DESCR' = webtablekey)
-        k <- k[STAT != 'DUMMY']
+        k <- data.table('stat' = vars, 'descr' = webtablekey)
+        k <- k[stat != 'dummy']
         
         tablename <- webdata[row, dataname]
         scraped[[tablename]] <- webtable
-        keyname <- paste0(webdata[row, dataname], "_KEY")
+        keyname <- paste0(webdata[row, dataname], "_key")
         statkeys[[keyname]] <- k
     } 
     
     
     
     ##### Write Data To Db2 #####
-    # Connect using RODBC package
-    con <- odbcConnect('DB2', 'fjs08406', 'hVJHsH2WnvB9H3Bm')
-    
+    # Connect using database connection given by user
+
     for (dname in webdata$dataname){
-        dropname <- paste0('FJS08406.', dname)
-        sqlDrop(con, sqtable = dropname)
-        sqlSave(con, scraped[[dname]], tablename = dname, rownames = FALSE)
-        dropkeyname <- paste0('FJS08406.', dname, "_KEY")
-        keyname <- paste0(dname, "_KEY")
-        sqlDrop(con, sqtable = keyname)
-        sqlSave(con, statkeys[[keyname]], tablename = keyname, rownames = FALSE)
+        
+        # Open connection to database
+        con <- DBI::dbConnect(
+            Postgres(),
+            user = 'postgres',
+            password = 'test',
+            host = '34.145.54.103',
+            dbname = 'postgres'
+        )
+        
+        # Write data and key to data base, overwriting the previous table of the same name
+        dbWriteTable(con, dname, scraped[[dname]], overwrite = T)
+        
+        dbWriteTable(con, keyname, statkeys[[keyname]], overwrite = T)
     }
-    closeAllConnections()
+    # Close connection
+    dbDisconnect(con)
 }
 
 
 
 shinyServer(function(input, output, session) {
 
-    
-    # autoInvalidate <- reactiveTimer(600000)
-    # observe({
-    #     # Invalidate and re-execute this reactive expression every time the
-    #     # timer fires.
-    #     autoInvalidate()
-    #     
-    #     # Do something each time this is invalidated.
-    #     # The isolate() makes this observer _not_ get invalidated and re-executed
-    #     # when input$n changes.
-    #     scrapeandwrite.data(webdata)
-    #     print('Data Scraped and Writen to Server')
-    # })
-    
-    
- 
     # Set the scrapeandwrite.data() function to invalidate so the data is updated once every 24 hours
-    reactive({
-        invalidateLater(600000)    # refresh the report every 600k milliseconds (600 seconds)
+    observe({
+        invalidateLater(8.64*10^7)    # refresh the report every 600k milliseconds (600 seconds)
     scrapeandwrite.data(webdata)                # call our function from above
     print('Data Scraped and Writen to Server')
     })
     
-    
-    # Pull TEAM_ADVANCED_DATA from db2
-    con <- odbcConnect('DB2', 'fjs08406', 'hVJHsH2WnvB9H3Bm')
-    teams <- sqlFetch(con, 
-                      sqtable = 'FJS08406.TEAM_ADVANCED_DATA', 
-                      rownames = FALSE) %>%
-                setDT()
-    closeAllConnections()
-    setnames(teams, names(teams), tolower(names(teams)))
-    
-    
     ##### Team Standings Table #####
     output$teamstandings <- DT::renderDataTable({
+        
+        # Open the database connection
+        con <- DBI::dbConnect(
+            Postgres(),
+            user = 'postgres',
+            password = 'test',
+            host = '34.145.54.103',
+            dbname = 'postgres'
+        )  
+        
+        # Pull team_advanced_data from database
+        
+        teams <- dbReadTable(con, 
+                             'team_advanced_data') %>%
+            setDT()
+        
+        # Close connection
+        dbDisconnect(con)
+        
+        # Generate table
         DT::datatable(teams[,.(team, wins, losses)][order(wins, decreasing = TRUE)], 
                       options = list(pagelength = 10))
     })
    
-    
-    # Pull TEAM_SHOOTING from db2
-    con <- odbcConnect('DB2', 'fjs08406', 'hVJHsH2WnvB9H3Bm')
-    teamshooting <- sqlFetch(con, 
-                      sqtable = 'FJS08406.TEAM_SHOOTING', 
-                      rownames = FALSE) %>%
-        setDT()
-    closeAllConnections()
+
     
     ##### Team FG% Diagram #####
-    con <- odbcConnect('DB2', 'fjs08406', 'hVJHsH2WnvB9H3Bm')
-    d <- sqlFetch(con, 'TEAM_SHOOTING') %>% setDT()
-    setnames(d, names(d), tolower(names(d)))
     
-    k <-  sqlFetch(con, 'TEAM_SHOOTING_KEY') %>% setDT()
-    setnames(k, names(k), tolower(names(k)))
+    # Pull data from data base before generating figures so that only two database 
+    # transactions are required, and data is not pulled every time team input is changed.
     
-    closeAllConnections()
+    # Open the database connection
+    con <- DBI::dbConnect(
+        Postgres(),
+        user = 'postgres',
+        password = 'test',
+        host = '34.145.54.103',
+        dbname = 'postgres'
+    )
+    d <- dbReadTable(con, 'team_shooting') %>% setDT()
+
+    k <-  dbReadTable(con, 'team_shooting_key') %>% setDT()
+
+    # Close connection
+    dbDisconnect(con)
     
     
     # Team1 Field Goal Percentage diagram
@@ -370,25 +374,30 @@ shinyServer(function(input, output, session) {
         # Store team names and number
         teams <- input$defenseteams
         nteams <- length(teams)
+        
         # Build query
-        teamnames <- sapply(teams, function(t){
-            paste0('TEAM = ',
-                   '\'',
-                   t,
-                   '\'',
-                   ' OR ')}) %>%
-            paste0(collapse = '')
-        teamnames <- substr(teamnames, 1, (nchar(teamnames)-4))
+        q <- teams %>% 
+                str_c('team = \'', ., '\'', collapse = ' OR ') %>%
+                paste0('SELECT team, opp_efg_pct, opp_tov_pct, drb_pct FROM team_advanced_data WHERE ',
+                       .,
+                       ';')
 
-        q <- paste0('SELECT TEAM, OPP_EFG_PCT, OPP_TOV_PCT, DRB_PCT FROM TEAM_ADVANCED_DATA WHERE ',
-                    teamnames,
-                    ';')
-
+        # Open database connection
+        con <- DBI::dbConnect(
+            Postgres(),
+            user = 'postgres',
+            password = 'test',
+            host = '34.145.54.103',
+            dbname = 'postgres'
+        ) 
+        
         # Execute query and format result table
-        con <- odbcConnect('DB2', 'fjs08406', 'hVJHsH2WnvB9H3Bm')
-        data <- sqlQuery(con, q) %>%
+        data <- dbGetQuery(con, q) %>%
             setDT()
-        closeAllConnections()
+        
+        # Close connection
+        dbDisconnect(con)
+        
         setnames(data, names(data), tolower(names(data)))
         data[, opp_efg_pct := opp_efg_pct]
         data <- melt.data.table(data, id.vars = 'team')
@@ -437,14 +446,23 @@ shinyServer(function(input, output, session) {
         inputstat <- input$positionstat
         
         # Query and format
-        con <- odbcConnect('DB2', 'fjs08406', 'hVJHsH2WnvB9H3Bm')
-        key <- sqlFetch(con, 'PLAYER_DATA_KEY') %>%
+        con <- DBI::dbConnect(
+            Postgres(),
+            user = 'postgres',
+            password = 'test',
+            host = '34.145.54.103',
+            dbname = 'postgres'
+        ) 
+        
+        key <- dbReadTable(con, 'player_data_key') %>%
             setDT()
-        setnames(key, names(key), tolower(names(key)))
-        data <- sqlFetch(con, 'PLAYER_DATA') %>%
+        
+        data <- dbReadTable(con, 'player_data') %>%
             setDT()
-        closeAllConnections()
-        setnames(data, names(data), tolower(names(data)))
+        
+        # Close connection
+        dbDisconnect(con)
+        
         data <- data[data[,player != 'Player']]
         data[, 
              pos := fifelse(nchar(pos)>2, 
@@ -497,28 +515,37 @@ shinyServer(function(input, output, session) {
         # Combine chosen stats
         chosenstats <- c(input$defensestat, input$offensestat)
         
-        # Generate connection to SQL DB2
-        con <- odbcConnect('DB2', 'fjs08406', 'hVJHsH2WnvB9H3Bm')
+        #  connection to database
+        con <- DBI::dbConnect(
+            Postgres(),
+            user = 'postgres',
+            password = 'test',
+            host = '34.145.54.103',
+            dbname = 'postgres'
+        ) 
         
         # Pull the key table
-        key <- sqlFetch(con, 'PLAYER_DATA_KEY')
+        key <- dbReadTable(con, 'player_data_key')
         setDT(key)
         
         # Extract the STAT associated with the chosen stat descriptions
-        chosenstats <- key[DESCR %in% chosenstats, STAT]
+        chosenstats <- key[descr %in% chosenstats, stat]
         
         # Generate main query
         q <- chosenstats %>%
-                str_to_upper(.) %>%
-                str_c('ROUND(AVG(', ., '), 2) as AVG_',.) %>%
+                str_to_lower(.) %>%
+                str_c('ROUND(AVG(', ., ')::numeric, 2) AS avg_',.) %>%
                 paste0(., collapse = ', ') %>%
-                paste0('select PLAYER, ', ., ' from PLAYER_DATA group by PLAYER;')
+                paste0(' SELECT ', ., ' FROM player_data GROUP BY player;')
         
         # Execute query
-        data <- sqlQuery(con, query = q) %>%
+        data <- dbGetQuery(con, q) %>%
             setDT()
-        closeAllConnections()
-        setnames(data, names(data), tolower(names(data))) 
+        
+        # Close connection
+        dbDisconnect(con)
+        
+        # Generate table
         DT::datatable(data)
     })
     
