@@ -247,7 +247,7 @@ shinyUI(fluidPage(
     ),
     
     tabPanel('Top Players On Top Teams',
-             h4('Select a player stat and team stat to generate a table of the top five teams and their top five players'),
+             h4('Select a player stat and a team stat to generate a table of the top five teams and their top five players'),
              fluidRow(column(4, 
                              selectInput('teamstat',
                                          'Team Stat',
