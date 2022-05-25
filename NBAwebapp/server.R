@@ -14,9 +14,9 @@ library(bslib)
 library(DBI)
 library(RPostgres)
 
-##### Define Web Data #####
+##### Define Data Needed For The Scrape Function #####
 
-
+# Build a table with all needed info for scraping data
 webdata <- data.table('dataname' = c('player_data', 
                                      'team_advanced_data', 
                                      'team_shooting'),
@@ -34,8 +34,23 @@ webdata <- data.table('dataname' = c('player_data',
                                            '#shooting-team > thead > tr:nth-child(2)')
 )
 
+
+# Scrape a table of team names and team ids from Wikipedia. Team ids will be added  
+# to 'team_advanced_data' and will serve as the foreign key for 'player_data'
+teamnames <- 'https://en.wikipedia.org/wiki/Wikipedia:WikiProject_National_Basketball_Association/National_Basketball_Association_team_abbreviations' %>%
+    read_html() %>%
+    html_elements(css = '#mw-content-text > div.mw-parser-output > table') %>%
+    html_table(header = TRUE) %>%
+    as.data.table
+setnames(teamnames, names(teamnames), c('team_id', 'team'))
+
+# Change a few abbreviations to match the scraped data
+teamnames[team_id == 'PHX', team_id := 'PHO'][
+    team_id == 'CHA', team_id := 'CHO'][
+        team_id == 'BKN', team_id := 'BRK']
+
 ##### Scrape Function #####
-scrapeandwrite.data <- function(webdata, con){        
+scrapeandwrite.data <- function(webdata, teamnames){        
     scraped <- list()
     statkeys <- list()
     for (row in 1:nrow(webdata)){
@@ -60,6 +75,9 @@ scrapeandwrite.data <- function(webdata, con){
             webtable[, 
                      6:ncol(webtable) := lapply(.SD, as.numeric), 
                      .SDcols = (6:ncol(webtable))]
+            
+            # Remove rows of headers
+            webtable <- webtable[player != 'Player']
         }
         
         if (row %in% c(2,3)){
@@ -75,6 +93,9 @@ scrapeandwrite.data <- function(webdata, con){
                                                                  x)), 
                  .SDcols = percstats]        
         
+        if (row == 2){
+            webtable <- webtable[teamnames, on = 'team']
+        }
         
         webtablekey <- sapply(webtablekey, function(x) {n <- html_attr(x,'aria-label')})
         k <- data.table('stat' = vars, 'descr' = webtablekey)
@@ -87,18 +108,18 @@ scrapeandwrite.data <- function(webdata, con){
     } 
     
     
-    
-    ##### Write Data To Db2 #####
-    # Connect using database connection given by user
-
+    # Connect using database connection and write data to cloud database
     for (dname in webdata$dataname){
+        
+        # Store key name for key table corresponding to the current table name
+        keyname <- names(statkeys)[str_detect(names(statkeys), dname)]
         
         # Open connection to database
         con <- DBI::dbConnect(
             Postgres(),
             user = 'postgres',
             password = 'test',
-            host = '34.145.54.103',
+            host = '34.127.19.215',
             dbname = 'postgres'
         )
         
@@ -112,13 +133,14 @@ scrapeandwrite.data <- function(webdata, con){
 }
 
 
+##### Shiny Server #####
 
 shinyServer(function(input, output, session) {
 
-    # Set the scrapeandwrite.data() function to invalidate so the data is updated once every 24 hours
+    # Set the scrapeandwrite.data() function to update the database every 24hrs 
     observe({
-        invalidateLater(8.64*10^7)    # refresh the report every 600k milliseconds (600 seconds)
-    scrapeandwrite.data(webdata)                # call our function from above
+        invalidateLater(8.64*10^7)    
+        scrapeandwrite.data(webdata, teamnames)                
     print('Data Scraped and Writen to Server')
     })
     
@@ -130,7 +152,7 @@ shinyServer(function(input, output, session) {
             Postgres(),
             user = 'postgres',
             password = 'test',
-            host = '34.145.54.103',
+            host = '34.127.19.215',
             dbname = 'postgres'
         )  
         
@@ -160,7 +182,7 @@ shinyServer(function(input, output, session) {
         Postgres(),
         user = 'postgres',
         password = 'test',
-        host = '34.145.54.103',
+        host = '34.127.19.215',
         dbname = 'postgres'
     )
     d <- dbReadTable(con, 'team_shooting') %>% setDT()
@@ -210,7 +232,7 @@ shinyServer(function(input, output, session) {
          ggplot(plotdata, aes(V3, V4)) +
             
             coord_cartesian(xlim = c(50,101), ylim = c(26,76)) + 
-            #Court
+            # Draw Court
             geom_rect(aes(xmin = 50, xmax = 100, ymin = 25, ymax = 75), fill = 'tan', colour = "black", size = 1, alpha = .7) + # Court Perimeter
             geom_arc(aes(x0 = 100, y0 = 50, r = 6, start = pi, end = 2*pi), size = 1, inherit.aes = FALSE) +  # Half court circle
             geom_rect(aes(xmin = 50, xmax = 69, ymin = 42, ymax = 58), fill = NA, colour = "black", size = 1) + # Key
@@ -246,7 +268,7 @@ shinyServer(function(input, output, session) {
                                 ) +
             coord_cartesian(xlim = c(50,100), ylim = c(26,76)) + 
             coord_flip() +
-            #Theme
+            # Theme
             theme(
                 panel.background = element_rect(fill = "transparent",colour = NA),
                 plot.margin = unit(c(0,0,0,0), "cm"),
@@ -309,7 +331,7 @@ shinyServer(function(input, output, session) {
         ggplot(plotdata, aes(V3, V4)) +
             
             coord_cartesian(xlim = c(50,101), ylim = c(26,76)) + 
-            #Court
+            # Draw Court
             geom_rect(aes(xmin = 50, xmax = 100, ymin = 25, ymax = 75), fill = 'tan', colour = "black", size = 1, alpha = .7) + # Court Perimeter
             geom_arc(aes(x0 = 100, y0 = 50, r = 6, start = pi, end = 2*pi), size = 1, inherit.aes = FALSE) +  # Half court circle
             geom_rect(aes(xmin = 50, xmax = 69, ymin = 42, ymax = 58), fill = NA, colour = "black", size = 1) + # Key
@@ -345,7 +367,7 @@ shinyServer(function(input, output, session) {
             ) +
             coord_cartesian(xlim = c(50,100), ylim = c(26,76)) + 
             coord_flip() +
-            #Theme
+            # Theme
             theme(
                 panel.background = element_rect(fill = "transparent",colour = NA),
                 plot.margin = unit(c(0,0,0,0), "cm"),
@@ -369,8 +391,11 @@ shinyServer(function(input, output, session) {
     
     
 ##### Team Defense #####    
-    # Query team data and format results when button is clicked
-    observeEvent(input$getdefense, {
+    
+    # Wait until at least one team is selected before generating plot
+    output$defenseplot <- renderPlot({
+        validate(need(input$defenseteams, ''))
+        
         # Store team names and number
         teams <- input$defenseteams
         nteams <- length(teams)
@@ -387,7 +412,7 @@ shinyServer(function(input, output, session) {
             Postgres(),
             user = 'postgres',
             password = 'test',
-            host = '34.145.54.103',
+            host = '34.127.19.215',
             dbname = 'postgres'
         ) 
         
@@ -401,10 +426,9 @@ shinyServer(function(input, output, session) {
         setnames(data, names(data), tolower(names(data)))
         data[, opp_efg_pct := opp_efg_pct]
         data <- melt.data.table(data, id.vars = 'team')
-        
-        # Generate plot
-        output$defenseplot <- renderPlot({
-
+    
+            
+            
              ggplot(data, aes(variable, value, fill = team)) +
                  geom_col(position = 'dodge') +
                  labs(x = 'Defensive Stat',
@@ -430,7 +454,7 @@ shinyServer(function(input, output, session) {
                  ) +
                  ggtitle('Comparing Team Defense')
 
-     })
+     
     
     })
     
@@ -450,7 +474,7 @@ shinyServer(function(input, output, session) {
             Postgres(),
             user = 'postgres',
             password = 'test',
-            host = '34.145.54.103',
+            host = '34.127.19.215',
             dbname = 'postgres'
         ) 
         
@@ -463,7 +487,7 @@ shinyServer(function(input, output, session) {
         # Close connection
         dbDisconnect(con)
         
-        data <- data[data[,player != 'Player']]
+        data <- data[data[, player != 'Player']]
         data[, 
              pos := fifelse(nchar(pos)>2, 
                             substr(pos, 1, (nchar(pos) - 3)), 
@@ -520,7 +544,7 @@ shinyServer(function(input, output, session) {
             Postgres(),
             user = 'postgres',
             password = 'test',
-            host = '34.145.54.103',
+            host = '34.127.19.215',
             dbname = 'postgres'
         ) 
         
@@ -550,7 +574,101 @@ shinyServer(function(input, output, session) {
     })
     
     
-    session$onSessionEnded(stopApp)
+    ##### Top Players on Top Teams #####
+    
+    # Open database connection
+    con <- DBI::dbConnect(
+        Postgres(),
+        user = 'postgres',
+        password = 'test',
+        host = '34.127.19.215',
+        dbname = 'postgres'
+    ) 
+    
+    # Pull the player key table
+    pkey <- dbReadTable(con, 'player_data_key')
+    setDT(pkey)
+    
+    # Pull the team key table
+    tkey <- dbReadTable(con, 'team_advanced_data_key')
+    setDT(tkey)
+    
+    # Close connection
+    dbDisconnect(con)
+    
+    # Set the chart to generate after the submit button is clicked
+   output$topteams_topplayers <- renderDataTable({
+        
+       # Wait until the button is clicked
+        validate(
+           need(input$teamstat, ''),
+           need(input$playerstat, '')
+        )
+       
+        # Store user chosen team and player stats
+        tstat <- input$teamstat
+        pstat <- input$playerstat
+        
+        # Use keys to get column names associated with stats
+        tstat <- tkey[descr == tstat, stat]
+        pstat <- pkey[descr == pstat, stat]
+        
+        # Store which stats should be ordered in ascending order, i.e. lower stat is better
+        tlowstat <- c('losses')
+        plowstat <- c('tov', 'pf')
+        
+        # Store which direction stat should be sorted
+        torder <- fifelse(tstat %in% tlowstat, 'ASC', 'DESC')
+        porder <- fifelse(pstat %in% plowstat, 'ASC', 'DESC')
+        
+        # Generate SQL query
+        q <- paste0('SELECT * FROM (SELECT team_id, ',
+                    pstat,
+                    ', ROW_NUMBER() OVER (PARTITION BY team_id ORDER BY ',
+                    pstat,
+                    ' ',
+                    porder,
+                    ' NULLS LAST) AS rn FROM player_data) p JOIN (SELECT team_id, ',
+                    tstat,
+                    ' FROM team_advanced_data ORDER BY ',
+                    tstat,
+                    ' ',
+                    torder,
+                    ' LIMIT 5) t USING(team_id) WHERE p.rn <= 5 ORDER BY team_id, ',
+                    tstat, 
+                    ' ',
+                    torder, 
+                    ', ',
+                    pstat,
+                    ' ',
+                    porder,
+                    ';'
+                    )
+        
+        # Open database connection
+        con <- DBI::dbConnect(
+            Postgres(),
+            user = 'postgres',
+            password = 'test',
+            host = '34.127.19.215',
+            dbname = 'postgres'
+        ) 
+        
+        # Query database
+        resulttable <- dbGetQuery(con, q)
+        setDT(resulttable)
+        
+        # Close database connection
+        dbDisconnect(con)
+        
+        # Generate table
+        DT::datatable(resulttable, options = list(paging = FALSE) )
+        
+
+    })
+   
+    
+   session$onSessionEnded(stopApp)
 })
 
                                

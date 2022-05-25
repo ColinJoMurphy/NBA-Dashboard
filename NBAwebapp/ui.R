@@ -59,7 +59,8 @@ shinyUI(fluidPage(
                                                  'Sacramento Kings',
                                                  'Toronto Raptors',
                                                  'Utah Jazz',
-                                                 'Washington Wizards'),
+                                                 'Washington Wizards'
+                                                ),
                                     selected = '')
                     ), 
                      column(6,
@@ -94,7 +95,8 @@ shinyUI(fluidPage(
                                                  'Sacramento Kings',
                                                  'Toronto Raptors',
                                                  'Utah Jazz',
-                                                 'Washington Wizards'),
+                                                 'Washington Wizards'
+                                                ),
                                     selected = ''))
                      ),
      
@@ -111,13 +113,13 @@ shinyUI(fluidPage(
                     ))
                  ),
         tabPanel('Defense',
-                 h4('Choose any number of teams for which to query the database and return their defensive stats.'),
+                 h4('Choose any number of teams to compare their defensive stats.'),
                     fluidRow(
                         column(2, 
                             selectInput('defenseteams',
                                     'Teams',
                                     multiple = TRUE,
-                                    choices = c('',
+                                    choices = c(
                                                 'Atlanta Hawks',
                                                 'Boston Celtics',
                                                 'Charlotte Hornets',
@@ -146,17 +148,16 @@ shinyUI(fluidPage(
                                                 'Sacramento Kings',
                                                 'Toronto Raptors',
                                                 'Utah Jazz',
-                                                'Washington Wizards'),
-                                    selected = '')
-                                ),
-                         column(1,
-                                actionButton('getdefense', 'Compare')
+                                                'Washington Wizards'
+                                                ),
+                                    selectize = TRUE
+                                    )
                                 )
-                        ),
+                    ),
 
-                 
-                        fluidRow(column(7, offset = 2,
-                                 withSpinner(plotOutput('defenseplot', 
+                        fluidRow(column(6, offset = 4,
+                                 withSpinner(
+                                     plotOutput('defenseplot', 
                                                         width =1200,
                                                         height = 600
                                                       ),
@@ -168,8 +169,8 @@ shinyUI(fluidPage(
                  
         ),
                  
-        "Players",
-        tabPanel("Stats by Postion",
+        'Players',
+        tabPanel('Stats by Postion',
                  h4('Select a statistic to compare across positions'),
                  fluidRow(
                      column(4, 
@@ -204,7 +205,7 @@ shinyUI(fluidPage(
                  ),
         tabPanel('Shooting and Defending',
                 
-                 h4('Select stats to with which query player data:'),
+                 h4('Select which player stats you would like to see'),
                  fluidRow(column(10,
                             checkboxGroupInput('offensestat',
                                                'Offensive Stats',
@@ -243,7 +244,64 @@ shinyUI(fluidPage(
                                 )
                  
                         )
-    )
+    ),
+    
+    tabPanel('Top Players On Top Teams',
+             h4('Select a player stat and team stat to generate a table of the top five teams and their top five players'),
+             fluidRow(column(4, 
+                             selectInput('teamstat',
+                                         'Team Stat',
+                                         choices = c('',
+                                                     'Wins',
+                                                     'Losses',
+                                                     'Margin of Victory',
+                                                     'Offensive Rating',
+                                                     'Defensive Rating',
+                                                     'Pace Factor',
+                                                     'Free Throw Attempt Rate',
+                                                     '3-Point Attempt Rate',
+                                                     'Effective Field Goal Percentage',
+                                                     'Offensive Rebound Percentage',
+                                                     'Opponent Turnover Percentage',
+                                                     'Defensive Rebound Percentage'),
+                                         selected = ''
+                             )
+             ),
+                 
+                    column(4, 
+                             selectInput('playerstat',
+                                         'Player Stat',
+                                         choices = c('',
+                                                     'Games Started',
+                                                     'Minutes Played',
+                                                     'Field Goals',
+                                                     'Field Goal Percentage',
+                                                     '3-Point Field Goal Percentage',
+                                                     '2-Point Field Goal Percentage',
+                                                     'Free Throw Percentage',
+                                                     'Offensive Rebounds',
+                                                     'Defensive Rebounds',
+                                                     'Total Rebounds',
+                                                     'Assists',
+                                                     'Steals',
+                                                     'Blocks',
+                                                     'Turnovers',
+                                                     'Personal Fouls',
+                                                     'Points'),
+                                         selected = ''
+                                         )
+                             )
+
+                      ),
+             fluidRow(column(12,
+                             withSpinner(DT::dataTableOutput('topteams_topplayers'),
+                                         image = 'https://media.giphy.com/media/glXhanMgKLLRWir9MR/giphy.gif',
+                                         image.height = 180)
+                             )
+                     )
+            
+            
+            )
 
 
 )
